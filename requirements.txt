@@ -1,5 +1,5 @@
 # Core dependencies
-Flask==3.1.0
+Flask==3.1.1
 onvif-zeep==0.2.12
 opencv-python==4.11.0.86
 
@@ -19,3 +19,6 @@ lxml==5.3.2
 # Other utilities
 python-dateutil==2.8.2
 six==1.16.0 
+PyYAML~=6.0.2
+bcrypt~=4.3.0
+PyJWT~=2.10.1

@@ -1,4 +1,4 @@
-from flask import Flask, render_template, jsonify, request, Response, redirect, url_for
+from flask import Flask, render_template, jsonify, request, Response, redirect, url_for, make_response
 import json
 from app import get_cameras_from_conf, get_rtsp_url
 import cv2
@@ -7,6 +7,8 @@ import time
 from datetime import datetime
 import base64
 import secrets
+
+from user import user_login, load_users, create_user, User, authenticate
 
 app = Flask(__name__, static_folder='static', template_folder='templates')
 app.secret_key = secrets.token_hex(16)  # Generate a random secret key for sessions
@@ -18,16 +20,17 @@ default_credentials = None
 active_streams = {}  # Store active stream objects
 stream_lock = threading.Lock()  # Add thread lock for stream operations
 
+
 def discover_and_update_cameras():
     """Discover cameras and update the global cameras dictionary"""
     global cameras, last_discovery_time, default_credentials
-    
+
     if not default_credentials:
         return []
-        
+
     discovered = get_cameras_from_conf()
     current_ips = []
-    
+
     # Update camera information
     for camera in discovered:
         current_ips.append(camera['ip'])
@@ -42,24 +45,25 @@ def discover_and_update_cameras():
                 'username': default_credentials['username'],
                 'password': default_credentials['password']
             }
-    
+
     # Mark cameras that are no longer visible
     for ip in list(cameras.keys()):
         if ip not in current_ips:
             cameras[ip]['status'] = 'offline'
             cameras[ip]['connected'] = False
-    
+
     last_discovery_time = datetime.now().isoformat()
     return discovered
+
 
 def get_camera_stream(ip):
     """Generator function to stream camera feed"""
     global active_streams
-    
+
     rtsp_url = cameras[ip].get('rtsp_url')
     if not rtsp_url:
         return
-    
+
     with stream_lock:
         # Check if there's already an active stream for this camera
         if ip in active_streams:
@@ -68,19 +72,19 @@ def get_camera_stream(ip):
             except:
                 pass  # Ignore errors during release
             del active_streams[ip]
-    
+
         cap = cv2.VideoCapture(rtsp_url)
         if not cap.isOpened():
             cameras[ip]['connected'] = False
             cameras[ip]['status'] = 'error'
             cameras[ip]['error_message'] = 'Failed to open stream'
             return
-            
+
         active_streams[ip] = {
             'cap': cap,
             'active': True
         }
-    
+
     try:
         while True:
             with stream_lock:
@@ -90,13 +94,13 @@ def get_camera_stream(ip):
                 ret, frame = cap.read()
                 if not ret:
                     break
-                
+
                 # Convert frame to JPEG
                 ret, buffer = cv2.imencode('.jpg', frame)
                 if not ret:
                     break
                 frame = buffer.tobytes()
-            
+
             # Return frame in multipart response
             yield (b'--frame\r\n'
                    b'Content-Type: image/jpeg\r\n\r\n' + frame + b'\r\n')
@@ -111,39 +115,56 @@ def get_camera_stream(ip):
             cameras[ip]['connected'] = False
             cameras[ip]['status'] = 'discovered'
 
+
 @app.route('/')
 def index():
-    """Render the main page or redirect to login"""
-    discover_and_update_cameras()
-    if not default_credentials:
+    user = authenticate(request.cookies.get('user'))
+    if not user:
         return redirect(url_for('login'))
-    return render_template('index.html', cameras=cameras, cameras_json=json.dumps(cameras))
+    return render_template('index.html', cameras=cameras, user=user)
 
 
 @app.route('/camera/<ip>')
 def show_camera(ip):
-    return render_template('camera.html', camera=cameras[ip])
+    user = authenticate(request.cookies.get('user'))
+    if not user:
+        return redirect(url_for('login'))
+    if ip not in cameras.keys():
+        return redirect(url_for('index'))
+    return render_template('camera.html', camera=cameras[ip], user=user)
 
 
 @app.route('/login', methods=['GET', 'POST'])
 def login():
-    """Handle login page"""
-    global default_credentials
-    
+    if len(load_users()) == 0:
+        return redirect(url_for('register'))
     if request.method == 'POST':
         username = request.form.get('username')
         password = request.form.get('password')
-        
-        if username and password:
-            default_credentials = {
-                'username': username,
-                'password': password
-            }
-            # Do initial camera discovery with new credentials
-            discover_and_update_cameras()
-            return redirect(url_for('index'))
-    
+        user = user_login(username, password)
+        if user:
+            resp = make_response(redirect(url_for('index')))
+            resp.set_cookie('user', user.get_auth_token())
+            return resp
+
     return render_template('login.html')
+
+
+@app.route('/register', methods=['GET', 'POST'])
+def register():
+    if request.method == 'POST':
+        username = request.form.get('username')
+        password = request.form.get('password')
+        role = request.form.get('role')
+        user_cookie = request.cookies.get('user')
+        user = create_user(username, password, role, user_cookie)
+        if user:
+            resp = make_response(redirect(url_for('index')))
+            resp.set_cookie('user', user.get_auth_token())
+            return resp
+
+    return render_template('register.html')
+
 
 @app.route('/logout')
 def logout():
@@ -153,30 +174,32 @@ def logout():
     cameras = {}
     return redirect(url_for('login'))
 
+
 @app.route('/api/discover', methods=['POST'])
 def api_discover():
     """API endpoint to trigger camera discovery"""
     if not default_credentials:
         return jsonify({"status": "error", "message": "No credentials provided"})
-    
+
     discover_and_update_cameras()
     return jsonify({"status": "success", "cameras": cameras})
+
 
 @app.route('/api/connect', methods=['POST'])
 def api_connect():
     """API endpoint to connect to a camera"""
     if not default_credentials:
         return jsonify({"status": "error", "message": "No credentials provided"})
-    
+
     data = request.json
     ip = data.get('ip')
     port = data.get('port')
     username = data.get('username', default_credentials['username'])
     password = data.get('password', default_credentials['password'])
-    
+
     if ip not in cameras:
         return jsonify({"status": "error", "message": "Camera not found"})
-    
+
     # First stop any existing stream
     with stream_lock:
         if ip in active_streams:
@@ -186,7 +209,7 @@ def api_connect():
                 del active_streams[ip]
             except:
                 pass
-    
+
     try:
         rtsp_url = get_rtsp_url(ip, port, username, password)
         if rtsp_url:
@@ -211,6 +234,7 @@ def api_connect():
             "message": str(e)
         })
 
+
 @app.route('/api/stream/<ip>')
 def api_stream(ip):
     """API endpoint to stream camera feed"""
@@ -219,13 +243,13 @@ def api_stream(ip):
             "status": "error",
             "message": "Camera not found"
         }), 404
-        
+
     if not cameras[ip].get('connected'):
         return jsonify({
             "status": "error",
             "message": "Camera not connected"
         }), 400
-    
+
     try:
         return Response(
             get_camera_stream(ip),
@@ -238,10 +262,12 @@ def api_stream(ip):
             "message": f"Stream error: {str(e)}"
         }), 500
 
+
 @app.route('/api/cameras')
 def api_cameras():
     """API endpoint to get camera information"""
     return jsonify(cameras)
+
 
 @app.route('/api/registration_code', methods=['POST'])
 def api_registration_code():
@@ -251,10 +277,10 @@ def api_registration_code():
     port = data.get('port')
     username = data.get('username', 'admin')
     password = data.get('password', '1234abcd')
-    
+
     if ip not in cameras:
         return jsonify({"status": "error", "message": "Camera not found"})
-    
+
     try:
         # Get RTSP URL if not already connected
         rtsp_url = cameras[ip].get('rtsp_url')
@@ -264,7 +290,7 @@ def api_registration_code():
                 cameras[ip]['rtsp_url'] = rtsp_url
                 cameras[ip]['connected'] = True
                 cameras[ip]['status'] = 'connected'
-        
+
         if rtsp_url:
             # Create registration code with camera details
             registration_data = {
@@ -275,12 +301,12 @@ def api_registration_code():
                 "rtsp_url": rtsp_url,
                 "timestamp": datetime.now().isoformat()
             }
-            
+
             # Encode the data as base64 for easy copying
             registration_code = base64.b64encode(
                 json.dumps(registration_data).encode()
             ).decode()
-            
+
             return jsonify({
                 "status": "success",
                 "registration_code": registration_code,
@@ -289,12 +315,13 @@ def api_registration_code():
             })
         else:
             return jsonify({"status": "error", "message": "Failed to get RTSP URL from camera"})
-            
+
     except Exception as e:
         return jsonify({
             "status": "error",
             "message": str(e)
         })
+
 
 @app.route('/api/stop_stream/<ip>', methods=['POST'])
 def stop_stream(ip):
@@ -324,7 +351,7 @@ def stop_stream(ip):
             cameras[ip]['connected'] = False
             cameras[ip]['status'] = 'discovered'
             cameras[ip].pop('error_message', None)  # Clear any error message
-            
+
             return jsonify({
                 "status": "success",
                 "message": "Stream stopped successfully"
@@ -343,21 +370,22 @@ def stop_stream(ip):
                     cameras[ip]['status'] = 'discovered'
         except:
             pass
-        
+
         return jsonify({
             "status": "error",
             "message": f"Failed to stop stream: {str(e)}"
         }), 500
 
+
 if __name__ == '__main__':
     # Start discovery thread
     def discovery_thread():
         while True:
-            if default_credentials:  # Only run discovery if we have credentials
-                discover_and_update_cameras()
+            discover_and_update_cameras()
             time.sleep(30)
-    
+
+
     threading.Thread(target=discovery_thread, daemon=True).start()
-    
+
     # Run the Flask app
     app.run(host='0.0.0.0', port=5000, debug=True, use_reloader=False)

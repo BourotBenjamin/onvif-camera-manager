@@ -7,7 +7,7 @@
         <div class="d-flex align-items-center">
             <span class="text-light me-4">
                 <i class="fas fa-user me-2"></i>
-                <small>Default Username: <code class="text-info">{{ request.form.get('username', 'admin') }}</code></small>
+                <small>Current User: <code class="text-info">{{ user.username }}</code></small>
             </span>
             <a href="{{ url_for('index') }}"  class="btn btn-outline-light me-2">
                 <i class="fas fa-sync-alt me-2"></i>
