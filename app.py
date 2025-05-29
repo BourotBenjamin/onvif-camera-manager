@@ -40,6 +40,9 @@ class Camera:
         self.connected = False
         self.stream = None
 
+    def to_dict(self) -> dict:
+        return {"index": self.index, "name": self.name, "connected": self.connected, "status": self.status}
+
 
 def load_cameras() -> list[Camera]:
     return [Camera(index, camera_data) for index, camera_data in enumerate(yaml.safe_load(open(cameras_config_file, 'r'))['cameras'])]

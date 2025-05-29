@@ -160,7 +160,7 @@ def api_discover():
 @app.route('/api/cameras/list')
 def api_cameras():
     """API endpoint to get camera information"""
-    return jsonify(cameras)
+    return jsonify([camera.to_dict() for camera in cameras])
 
 
 @app.route('/api/cameras/<int:camera_index>/stream')

@@ -28,7 +28,7 @@ function setCameraLoading() {
 function restartCamera(cameraIndex) {
     const errorDiv = document.getElementById('connectError');
     setCameraLoading();
-    fetch(`/api/camera/${cameraIndex}/restart`, {
+    fetch(`/api/cameras/${cameraIndex}/restart`, {
         method: 'POST',
         headers: {
             'Content-Type': 'application/json'
