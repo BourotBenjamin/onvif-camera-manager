@@ -26,46 +26,7 @@
 
     <div class="container py-4">
         <div id="camera-grid">
-            <div class="card camera-card">
-                <div class="stream-container">
-                    <span class="badge bg-secondary status-badge">{{camera.status}}</span>
-                    {% if camera.connected %}
-                        <img src="/api/cameras/{{camera.index}}/stream" alt="Camera Stream">
-                    {% else %}
-                        <div class="d-flex align-items-center justify-content-center h-100 bg-dark text-light">
-                            <i class="fas fa-camera fa-3x"></i>
-                        </div>
-                    {% endif %}
-                    <div class="camera-controls">
-                        <div class="d-flex gap-2 justify-content-center">
-                            {% if camera.connected %}
-                                <button class="btn btn-sm btn-danger" onclick="stopStream('{{camera.index}}')">
-                                    <i class="fas fa-stop me-1"></i>
-                                    Stop Stream
-                                </button>
-                            {% else %}
-                                <button class="btn btn-sm btn-primary" onclick="restartCamera('{{camera.index}}')">
-                                    <i class="fas fa-plug me-1"></i>
-                                    Restart
-                                </button>
-                                <button class="btn btn-sm btn-primary" onclick="showConnectModal('{{camera.index}}', '{{camera.ip}}', {{camera.port}})">
-                                    <i class="fas fa-plug me-1"></i>
-                                    Connect
-                                </button>
-                            {% endif %}
-                        </div>
-                    </div>
-                </div>
-                <div class="card-body">
-                    <h5 class="card-title">Camera {{camera.name}}</h5>
-                    <p class="card-text">
-                        <small class="text-muted">Last seen: {{ camera.last_seen }}</small>
-                        {% if camera.error_message %}
-                            <br><small class="text-danger">{{camera.error_message}}</small>
-                        {% endif %}
-                    </p>
-                </div>
-            </div>
+            {%  include 'partials/camera/card.html' %}
         </div>
     </div>
 

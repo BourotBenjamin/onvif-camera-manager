@@ -157,10 +157,12 @@ def api_discover():
     return jsonify({"status": "success", "cameras": cameras})
 
 
-@app.route('/api/cameras/list')
-def api_cameras():
-    """API endpoint to get camera information"""
-    return jsonify([camera.to_dict() for camera in cameras])
+@app.route('/cameras/list')
+def list_cameras():
+    user = authenticate(request.cookies.get('user'))
+    if not user:
+        return render_template('error.html')
+    return render_template('partials/camera/list.html', cameras=cameras)
 
 
 @app.route('/api/cameras/<int:camera_index>/stream')
@@ -230,7 +232,7 @@ def stop_stream(camera_index: int):
         }), 500
 
 
-@app.route('/api/cameras/<int:camera_index>/restart')
+@app.route('/api/cameras/<int:camera_index>/restart', methods=['POST'])
 def camera_restart(camera_index: int):
     if len(cameras) <= camera_index:
         return jsonify({

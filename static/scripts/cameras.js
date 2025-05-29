@@ -84,7 +84,7 @@ function connectToCamera() {
 }
 
 function stopStream(index) {
-    fetch(`/api/cameras/${index}/stop_stream`, {
+    fetch(`/api/cameras/${index}/stop`, {
         method: 'POST',
         headers: {
             'Content-Type': 'application/json'
@@ -117,16 +117,12 @@ function stopStream(index) {
 }
 
 function updateCameraGrid() {
-    fetch('/api/cameras/list')
-        .then(response => response.json())
-        .then(cameras => {
-            const grid = document.getElementById('camera-grid');
-            grid.innerHTML = '';
-
-            Object.values(cameras).forEach(camera => {
-                const card = createCameraCard(camera);
-                grid.appendChild(card);
-            });
+    fetch('/cameras/list')
+        .then((response) => response.blob())
+        .then((responseBlob) => responseBlob.text())
+        .then((responseHtml) => {
+            const grid = document.getElementById('camera-grid').parentElement;
+            grid.innerHTML = responseHtml;
         })
         .catch(error => showError('Failed to update camera list: ' + error));
 }
