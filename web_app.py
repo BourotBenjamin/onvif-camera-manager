@@ -1,6 +1,6 @@
-from flask import Flask, render_template, jsonify, request, Response, session, redirect, url_for
+from flask import Flask, render_template, jsonify, request, Response, redirect, url_for
 import json
-from app import discover_cameras, get_rtsp_url, ONVIFCamera
+from app import get_cameras_from_conf, get_rtsp_url
 import cv2
 import threading
 import time
@@ -8,7 +8,7 @@ from datetime import datetime
 import base64
 import secrets
 
-app = Flask(__name__)
+app = Flask(__name__, static_folder='static', template_folder='templates')
 app.secret_key = secrets.token_hex(16)  # Generate a random secret key for sessions
 
 # Global variables to store camera information and credentials
@@ -25,13 +25,16 @@ def discover_and_update_cameras():
     if not default_credentials:
         return []
         
-    discovered = discover_cameras()
+    discovered = get_cameras_from_conf()
+    current_ips = []
     
     # Update camera information
-    for ip in discovered:
-        if ip not in cameras:
-            cameras[ip] = {
-                'ip': ip,
+    for camera in discovered:
+        current_ips.append(camera['ip'])
+        if camera['ip'] not in cameras.keys():
+            cameras[camera['ip']] = {
+                'ip': camera['ip'],
+                'port': camera['port'],
                 'status': 'discovered',
                 'rtsp_url': None,
                 'last_seen': datetime.now().isoformat(),
@@ -41,7 +44,6 @@ def discover_and_update_cameras():
             }
     
     # Mark cameras that are no longer visible
-    current_ips = set(discovered)
     for ip in list(cameras.keys()):
         if ip not in current_ips:
             cameras[ip]['status'] = 'offline'
@@ -112,9 +114,16 @@ def get_camera_stream(ip):
 @app.route('/')
 def index():
     """Render the main page or redirect to login"""
+    discover_and_update_cameras()
     if not default_credentials:
         return redirect(url_for('login'))
-    return render_template('index.html', cameras=cameras)
+    return render_template('index.html', cameras=cameras, cameras_json=json.dumps(cameras))
+
+
+@app.route('/camera/<ip>')
+def show_camera(ip):
+    return render_template('camera.html', camera=cameras[ip])
+
 
 @app.route('/login', methods=['GET', 'POST'])
 def login():
@@ -161,6 +170,7 @@ def api_connect():
     
     data = request.json
     ip = data.get('ip')
+    port = data.get('port')
     username = data.get('username', default_credentials['username'])
     password = data.get('password', default_credentials['password'])
     
@@ -178,7 +188,7 @@ def api_connect():
                 pass
     
     try:
-        rtsp_url = get_rtsp_url(ip, username, password)
+        rtsp_url = get_rtsp_url(ip, port, username, password)
         if rtsp_url:
             cameras[ip]['rtsp_url'] = rtsp_url
             cameras[ip]['connected'] = True
@@ -238,6 +248,7 @@ def api_registration_code():
     """Generate a registration code for VMS integration"""
     data = request.json
     ip = data.get('ip')
+    port = data.get('port')
     username = data.get('username', 'admin')
     password = data.get('password', '1234abcd')
     
@@ -248,7 +259,7 @@ def api_registration_code():
         # Get RTSP URL if not already connected
         rtsp_url = cameras[ip].get('rtsp_url')
         if not rtsp_url:
-            rtsp_url = get_rtsp_url(ip, username, password)
+            rtsp_url = get_rtsp_url(ip, port, username, password)
             if rtsp_url:
                 cameras[ip]['rtsp_url'] = rtsp_url
                 cameras[ip]['connected'] = True
@@ -258,6 +269,7 @@ def api_registration_code():
             # Create registration code with camera details
             registration_data = {
                 "ip": ip,
+                "port": port,
                 "username": username,
                 "password": password,
                 "rtsp_url": rtsp_url,
@@ -348,4 +360,4 @@ if __name__ == '__main__':
     threading.Thread(target=discovery_thread, daemon=True).start()
     
     # Run the Flask app
-    app.run(host='0.0.0.0', port=5000, debug=True, use_reloader=False) 
+    app.run(host='0.0.0.0', port=5000, debug=True, use_reloader=False)
