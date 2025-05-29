@@ -6,20 +6,15 @@ function showError(message) {
     errorToast.show();
 }
 
-function showConnectModal(ip, port) {
-    document.getElementById('cameraIp').value = ip;
-    document.getElementById('cameraPort').value = port;
+function showConnectModal(cameraIndex, ip, port) {
+    document.getElementById('cameraIndex').value = cameraIndex;
     document.getElementById('connectError').classList.add('d-none');
     document.getElementById('connectSpinner').classList.add('d-none');
     document.getElementById('connectButton').disabled = false;
     connectModal.show();
 }
 
-function connectToCamera() {
-    const ip = document.getElementById('cameraIp').value;
-    const port = document.getElementById('cameraPort').value;
-    const username = document.getElementById('username').value;
-    const password = document.getElementById('password').value;
+function setCameraLoading() {
     const errorDiv = document.getElementById('connectError');
     const spinner = document.getElementById('connectSpinner');
     const connectButton = document.getElementById('connectButton');
@@ -28,19 +23,21 @@ function connectToCamera() {
     errorDiv.classList.add('d-none');
     spinner.classList.remove('d-none');
     connectButton.disabled = true;
+}
 
-    fetch('/api/connect', {
+function restartCamera(cameraIndex) {
+    const errorDiv = document.getElementById('connectError');
+    setCameraLoading();
+    fetch(`/api/camera/${cameraIndex}/restart`, {
         method: 'POST',
         headers: {
             'Content-Type': 'application/json'
-        },
-        body: JSON.stringify({ ip, port, username, password })
+        }
     })
     .then(response => response.json())
     .then(data => {
         if (data.status === 'success') {
             connectModal.hide();
-            updateCameraGrid();
         } else {
             errorDiv.textContent = data.message;
             errorDiv.classList.remove('d-none');
@@ -51,14 +48,43 @@ function connectToCamera() {
         errorDiv.classList.remove('d-none');
     })
     .finally(() => {
-        // Reset loading state
-        spinner.classList.add('d-none');
-        connectButton.disabled = false;
+        updateCameraGrid();
+    });
+}
+function connectToCamera() {
+    const index = document.getElementById('cameraIndex').value;
+    const username = document.getElementById('username').value;
+    const password = document.getElementById('password').value;
+    const errorDiv = document.getElementById('connectError');
+    setCameraLoading()
+
+    fetch(`/api/cameras/${index}/connect`, {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({ index, username, password })
+    })
+    .then(response => response.json())
+    .then(data => {
+        if (data.status === 'success') {
+            connectModal.hide();
+        } else {
+            errorDiv.textContent = data.message;
+            errorDiv.classList.remove('d-none');
+        }
+    })
+    .catch(error => {
+        errorDiv.textContent = 'Connection failed: ' + error;
+        errorDiv.classList.remove('d-none');
+    })
+    .finally(() => {
+        updateCameraGrid();
     });
 }
 
-function stopStream(ip) {
-    fetch(`/api/stop_stream/${ip}`, {
+function stopStream(index) {
+    fetch(`/api/cameras/${index}/stop_stream`, {
         method: 'POST',
         headers: {
             'Content-Type': 'application/json'
@@ -88,4 +114,19 @@ function stopStream(ip) {
         // Force update the camera grid to refresh the state
         updateCameraGrid();
     });
+}
+
+function updateCameraGrid() {
+    fetch('/api/cameras/list')
+        .then(response => response.json())
+        .then(cameras => {
+            const grid = document.getElementById('camera-grid');
+            grid.innerHTML = '';
+
+            Object.values(cameras).forEach(camera => {
+                const card = createCameraCard(camera);
+                grid.appendChild(card);
+            });
+        })
+        .catch(error => showError('Failed to update camera list: ' + error));
 }

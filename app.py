@@ -1,20 +1,60 @@
+import datetime
+
 from onvif import ONVIFCamera
 import cv2
 import yaml
 
-def get_cameras_from_conf():
-    # Read YAML file
-    with open(".env.yaml", 'r') as env:
-        return yaml.safe_load(env)['cameras']
+cameras_config_file = "./config/cameras.yaml"
+
+
+class Stream:
+    active: bool
+    cap: cv2.VideoCapture
+
+    def __init__(self, active: bool, cap: cv2.VideoCapture):
+        self.active = active
+        self.cap = cap
+
+
+class Camera:
+    id: int
+    name: str
+    ip: str
+    port: str
+    username: str
+    password: str
+    status: str
+    rtsp_url: str
+    last_seen: datetime
+    connected: bool
+    stream: Stream
+
+    def __init__(self, index: int, d: dict):
+        self.index = index
+        self.name = d.get('name')
+        self.ip = d.get('ip')
+        self.port = d.get('port')
+        self.username = d.get('username')
+        self.password = d.get('password')
+        self.status = 'offline'
+        self.connected = False
+        self.stream = None
+
+
+def load_cameras() -> list[Camera]:
+    return [Camera(index, camera_data) for index, camera_data in enumerate(yaml.safe_load(open(cameras_config_file, 'r'))['cameras'])]
+
 
 # Step 2: Retrieve RTSP URL from Camera
-def get_rtsp_url(camera_ip, camera_port, username, password):
-    """
-    Retrieve the RTSP URL from an ONVIF-compatible camera.
-    """
+def get_rtsp_url(camera_index: int):
+    ip = 'unknown'
     try:
+        camera = load_cameras()[camera_index]
+        ip = camera.ip
+
         # Initialize the ONVIF camera object
-        onvif_cam = ONVIFCamera(camera_ip, camera_port, username, password, './venv/lib/python3.4/site-packages/wsdl/')
+        onvif_cam = ONVIFCamera(camera.ip, camera.port, camera.username, camera.password,
+                                './venv/lib/python3.4/site-packages/wsdl/')
 
         # Get the media service
         media_service = onvif_cam.create_media_service()
@@ -28,9 +68,9 @@ def get_rtsp_url(camera_ip, camera_port, username, password):
         })
 
         rtsp_url = stream_uri.Uri
-        return rtsp_url.replace("rtsp://", f"rtsp://{username}:{password}@")
+        return rtsp_url.replace("rtsp://", f"rtsp://{camera.username}:{camera.password}@")
     except Exception as e:
-        print(f"Failed to retrieve RTSP URL for {camera_ip}: {e}")
+        print(f"Failed to retrieve RTSP URL for Camera {ip} (Index {camera_index}): {e}")
         return None
 
 
@@ -62,7 +102,7 @@ def verify_stream(rtsp_url):
 # Main Function
 def main(username, password):
     print("Discovering cameras on the network...")
-    cameras = get_cameras_from_conf()
+    cameras = load_cameras()
 
     if not cameras:
         print("No cameras found on the network.")
@@ -70,16 +110,16 @@ def main(username, password):
 
     print(f"Found {len(cameras)} camera(s): {cameras}")
 
-    for camera in cameras:
-        print(f"Retrieving RTSP URL for camera at {camera['ip']}:{camera['port']}...")
-        rtsp_url = get_rtsp_url(camera['ip'], camera.port, username, password)
+    for key, camera in cameras:
+        print(f"Retrieving RTSP URL for camera at {camera.ip}:{camera.port}...")
+        rtsp_url = get_rtsp_url(key)
 
         if rtsp_url:
-            print(f"RTSP URL for {camera['ip']}: {rtsp_url}")
+            print(f"RTSP URL for {camera.ip}: {rtsp_url}")
             print("Verifying stream...")
             verify_stream(rtsp_url)
         else:
-            print(f"Could not retrieve RTSP URL for camera at {camera['ip']}.")
+            print(f"Could not retrieve RTSP URL for camera at {camera.ip}.")
 
 
 if __name__ == "__main__":
